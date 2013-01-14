@@ -45,11 +45,11 @@ class MySimpleContent extends SimpleContent {
 }
 
 def createSliderPanel(List<VcsFileRevision> revisions, int sliderPosition, Closure sliderCallback) {
-	def dateFormat = new SimpleDateFormat("hh:mm dd-MM-yyyy")
+	def dateFormat = new SimpleDateFormat("dd-MM-yyyy hh:mm")
 
 	def revisionToString = { int revisionIndex ->
 		def revision = revisions[revisionIndex]
-		revision == null ? "<null>" : dateFormat.format(revision.revisionDate)
+		"Date: " + (revision == null ? "unknown" : dateFormat.format(revision.revisionDate))
 	}
 
 	new JPanel().with{
