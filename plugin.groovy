@@ -8,6 +8,8 @@ import com.intellij.openapi.vcs.FilePathImpl
 import com.intellij.openapi.vcs.ProjectLevelVcsManager
 import com.intellij.openapi.vcs.history.VcsFileRevision
 import com.intellij.openapi.vfs.VirtualFile
+import groovyx.gpars.activeobject.ActiveObject
+
 import static intellijeval.PluginUtil.*
 
 import javax.swing.*
@@ -25,62 +27,62 @@ registerAction("showHistorySliderAction", "alt shift H", "ToolsMenu") { AnAction
 	}
 	AbstractVcs activeVcs = ProjectLevelVcsManager.getInstance(event.project).getVcsFor(file)
 	if (activeVcs == null) {
-		show("There is no history for open file: " + file.name)
+		show("There is no history for open file '${file.name}'")
 		return
 	}
-	def filePath = new FilePathImpl(file)
-	def historySession = activeVcs.vcsHistoryProvider.createSessionFor(filePath)
+	def historySession = activeVcs.vcsHistoryProvider.createSessionFor(new FilePathImpl(file))
 
-//show(historySession.revisionList.join(", "))
-	def revisions = historySession.revisionList.sort { it.revisionDate }
-	if (revisions.size() < 2) return
+	//show(historySession.revisionList.join(", "))
+	def revisions = historySession.revisionList.sort{ it.revisionDate }
+	if (revisions.size() < 2) {
+		show("There is only one revision for '${file.name}'")
+		return
+	}
 
-	def panel = new DiffPanelImpl((Window) null, event.project, (boolean) true, (boolean) true, (int) 0)
-//DiffManager.getInstance().createDiffPanel(null, event.project, new Disposable() { @Override void dispose() {} })
-
-	panel.enableToolbar(false)
-//panel.title1 = "left title"
-//panel.title2 = "right title"
+	def diffPanel = new DiffPanelImpl((Window) null, event.project, (boolean) true, (boolean) true, (int) 0)
+	diffPanel.enableToolbar(false)
+	//panel.title1 = "left title"
+	//panel.title2 = "right title"
 
 	def sliderPanel = new JPanel().with {
 		def leftContent = new MySimpleContent(new String(revisions[0].content), file)
 		def rightContent = new MySimpleContent(new String(revisions[1].content), file)
-		panel.setContents(leftContent, rightContent)
+		diffPanel.setContents(leftContent, rightContent)
 
 		layout = new BorderLayout()
 		add(createSliderPanel(revisions, 0, { VcsFileRevision revision ->
 			leftContent = new MySimpleContent(new String(revision.content), file)
-			panel.setContents(leftContent, rightContent)
+			diffPanel.setContents(leftContent, rightContent)
 		}), BorderLayout.NORTH)
 		add(createSliderPanel(revisions, 1, { VcsFileRevision revision ->
 			rightContent = new MySimpleContent(new String(revision.content), file)
-			panel.setContents(leftContent, rightContent)
+			diffPanel.setContents(leftContent, rightContent)
 		}), BorderLayout.SOUTH)
 		it
 	}
 
-	def frame = new JFrame()
-	def rootPanel = new JPanel()
-	rootPanel.layout = new BorderLayout()
-	rootPanel.add(panel.component, BorderLayout.CENTER)
-	rootPanel.add(sliderPanel, BorderLayout.SOUTH)
-	frame.add(rootPanel)
-	frame.pack()
-	frame.visible = true
+	new JFrame().with {
+		add(new JPanel().with {
+			layout = new BorderLayout()
+			add(diffPanel.component, BorderLayout.CENTER)
+			add(sliderPanel, BorderLayout.SOUTH)
+			it
+		})
+		pack()
+		visible = true
+	}
 }
 show("reloaded")
 
 class MySimpleContent extends SimpleContent {
-	VirtualFile virtualFile
+	private final VirtualFile virtualFile
 
 	MySimpleContent(String text, VirtualFile virtualFile) {
 		super(text, virtualFile.fileType)
 		this.virtualFile = virtualFile
 	}
 
-	@Override VirtualFile getFile() {
-		virtualFile
-	}
+	@Override VirtualFile getFile() { virtualFile }
 }
 
 def createSliderPanel(List<VcsFileRevision> revisions, int sliderPosition, Closure sliderCallback) {
