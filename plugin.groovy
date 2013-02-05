@@ -1,4 +1,6 @@
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.diff.DiffContent
+import com.intellij.openapi.diff.DiffRequest
 import com.intellij.openapi.diff.SimpleContent
 import com.intellij.openapi.diff.impl.DiffPanelImpl
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
@@ -8,7 +10,6 @@ import com.intellij.openapi.vcs.FilePathImpl
 import com.intellij.openapi.vcs.ProjectLevelVcsManager
 import com.intellij.openapi.vcs.history.VcsFileRevision
 import com.intellij.openapi.vfs.VirtualFile
-import groovyx.gpars.activeobject.ActiveObject
 
 import static intellijeval.PluginUtil.*
 
@@ -41,14 +42,19 @@ registerAction("showHistorySliderAction", "alt shift H", "ToolsMenu") { AnAction
 
 	def diffPanel = new DiffPanelImpl((Window) null, event.project, (boolean) true, (boolean) true, (int) 0)
 	diffPanel.enableToolbar(false)
-	//panel.title1 = "left title"
-	//panel.title2 = "right title"
+	//diffPanel.title1 = "left title"
+	//diffPanel.title2 = "right title"
+	def leftContent = new MySimpleContent(new String(revisions[0].content), file)
+	def rightContent = new MySimpleContent(new String(revisions[1].content), file)
+	def diffRequest = new DiffRequest(event.project) {
+		@Override DiffContent[] getContents() { [leftContent, rightContent] }
+		@Override String[] getContentTitles() { ["left", "right"] }
+		@Override String getWindowTitle() { "" }
+	}
+	diffPanel.diffRequest = diffRequest
+	// TODO use "generic data" with "DiffTool.SCROLL_TO_LINE" (see com.intellij.openapi.diff.impl.DiffPanelImpl.MyScrollingPanel#scrollEditors)
 
 	def sliderPanel = new JPanel().with {
-		def leftContent = new MySimpleContent(new String(revisions[0].content), file)
-		def rightContent = new MySimpleContent(new String(revisions[1].content), file)
-		diffPanel.setContents(leftContent, rightContent)
-
 		layout = new BorderLayout()
 		add(createSliderPanel(revisions, 0, { VcsFileRevision revision ->
 			leftContent = new MySimpleContent(new String(revision.content), file)
