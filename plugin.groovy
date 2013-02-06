@@ -1,15 +1,22 @@
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.diff.DiffContent
+import com.intellij.openapi.diff.DiffNavigationContext
 import com.intellij.openapi.diff.DiffRequest
+import com.intellij.openapi.diff.DiffTool
 import com.intellij.openapi.diff.SimpleContent
 import com.intellij.openapi.diff.impl.DiffPanelImpl
+import com.intellij.openapi.diff.impl.util.SyncScrollSupport
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.util.Pair
 import com.intellij.openapi.vcs.AbstractVcs
 import com.intellij.openapi.vcs.FilePathImpl
 import com.intellij.openapi.vcs.ProjectLevelVcsManager
+import com.intellij.openapi.vcs.actions.ContentsLines
 import com.intellij.openapi.vcs.history.VcsFileRevision
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.util.containers.CacheOneStepIterator
 
 import static intellijeval.PluginUtil.*
 
@@ -19,6 +26,7 @@ import javax.swing.event.ChangeListener
 import java.awt.*
 import java.text.SimpleDateFormat
 import java.util.List
+
 
 registerAction("showHistorySliderAction", "alt shift H", "ToolsMenu") { AnActionEvent event ->
 	VirtualFile file = currentFileIn(event.project)
@@ -42,27 +50,23 @@ registerAction("showHistorySliderAction", "alt shift H", "ToolsMenu") { AnAction
 
 	def diffPanel = new DiffPanelImpl((Window) null, event.project, (boolean) true, (boolean) true, (int) 0)
 	diffPanel.enableToolbar(false)
-	//diffPanel.title1 = "left title"
-	//diffPanel.title2 = "right title"
 	def leftContent = new MySimpleContent(new String(revisions[0].content), file)
 	def rightContent = new MySimpleContent(new String(revisions[1].content), file)
-	def diffRequest = new DiffRequest(event.project) {
-		@Override DiffContent[] getContents() { [leftContent, rightContent] }
-		@Override String[] getContentTitles() { ["left", "right"] }
-		@Override String getWindowTitle() { "" }
-	}
-	diffPanel.diffRequest = diffRequest
-	// TODO use "generic data" with "DiffTool.SCROLL_TO_LINE" (see com.intellij.openapi.diff.impl.DiffPanelImpl.MyScrollingPanel#scrollEditors)
+	diffPanel.diffRequest = new MyDiffRequest(leftContent, rightContent)
 
 	def sliderPanel = new JPanel().with {
 		layout = new BorderLayout()
 		add(createSliderPanel(revisions, 0, { VcsFileRevision revision ->
-			leftContent = new MySimpleContent(new String(revision.content), file)
-			diffPanel.setContents(leftContent, rightContent)
+			catchingAlll {
+				leftContent = new MySimpleContent(new String(revision.content), file)
+				diffPanel.diffRequest = withKeepingScrollPositionIn(diffPanel.editor1){ new MyDiffRequest(leftContent, rightContent) }
+			}
 		}), BorderLayout.NORTH)
 		add(createSliderPanel(revisions, 1, { VcsFileRevision revision ->
-			rightContent = new MySimpleContent(new String(revision.content), file)
-			diffPanel.setContents(leftContent, rightContent)
+			catchingAlll {
+				rightContent = new MySimpleContent(new String(revision.content), file)
+				diffPanel.diffRequest = withKeepingScrollPositionIn(diffPanel.editor2){ new MyDiffRequest(leftContent, rightContent) }
+			}
 		}), BorderLayout.SOUTH)
 		it
 	}
@@ -80,6 +84,23 @@ registerAction("showHistorySliderAction", "alt shift H", "ToolsMenu") { AnAction
 }
 show("reloaded")
 
+
+
+class MyDiffRequest extends DiffRequest {
+	private final leftContent
+	private final rightContent
+
+	MyDiffRequest(leftContent, rightContent) {
+		super(null)
+		this.leftContent = leftContent
+		this.rightContent = rightContent
+	}
+
+	@Override DiffContent[] getContents() { [leftContent, rightContent] }
+	@Override String[] getContentTitles() { ["left", "right"] }
+	@Override String getWindowTitle() { "" }
+}
+
 class MySimpleContent extends SimpleContent {
 	private final VirtualFile virtualFile
 
@@ -89,6 +110,30 @@ class MySimpleContent extends SimpleContent {
 	}
 
 	@Override VirtualFile getFile() { virtualFile }
+}
+
+DiffRequest withKeepingScrollPositionIn(editor, Closure<DiffRequest> closure) {
+	// TODO this was a desparate attemp to make vertical scroll stay in the position/line whil diff panel content
+	// problems:
+	//  - diff "flickers" when changing date (something like scroll to 1st line, scroll to last position)
+	//  - scrolling to last position is not stable; need to check algorithm for DiffNavigationContext positioning or fail back to line number
+
+	if (false) {
+		def visibleArea = editor.scrollingModel.visibleArea
+		// "height / 3" ugly hack was copied from com.intellij.openapi.diff.impl.util.SyncScrollSupport#syncVerticalScroll
+		def lineNumber = editor.xyToLogicalPosition(new Point((int) visibleArea.x, (int) visibleArea.y + visibleArea.height / 3)).line
+		def lines = editor.document.text.split("\n").toList()
+		def fromLine = (lineNumber - 10 < 0) ? 0 : lineNumber - 10
+		def prevLines = lines[fromLine..<lineNumber]
+		def line = lines[lineNumber]
+//	show(line)
+//	show(prevLines.join("\n'"))
+//	show(line)
+	}
+
+	def diffRequest = closure.call()
+//	diffRequest.passForDataContext(DiffTool.SCROLL_TO_LINE, new DiffNavigationContext(prevLines, line))
+	diffRequest
 }
 
 def createSliderPanel(List<VcsFileRevision> revisions, int sliderPosition, Closure sliderCallback) {
@@ -117,4 +162,14 @@ def createSliderPanel(List<VcsFileRevision> revisions, int sliderPosition, Closu
 	}
 }
 
+def catchingAlll(Closure closure) {
+	try {
 
+		closure.call()
+
+	} catch (Exception e) {
+		ProjectManager.instance.openProjects.each { Project project ->
+			showInConsole(e, e.class.simpleName, project)
+		}
+	}
+}
