@@ -20,66 +20,42 @@ import javax.swing.*
 import javax.swing.event.ChangeEvent
 import javax.swing.event.ChangeListener
 import java.awt.*
+import java.awt.event.KeyEvent
+import java.awt.event.KeyListener
 import java.text.SimpleDateFormat
 import java.util.List
 
 import static intellijeval.PluginUtil.*
-import static infer.MatchUtil.*
+
 
 registerAction("showHistorySliderAction", "alt shift H", "ToolsMenu") { AnActionEvent event ->
-	VirtualFile file = currentFileIn(event.project)
-	if (file == null) {
-		show("There are no open file editors")
-		return
-	}
-
-	AbstractVcs activeVcs = ProjectLevelVcsManager.getInstance(event.project).getVcsFor(file)
-	if (activeVcs == null) {
-		show("There is no history for open file '${file.name}'")
-		return
-	}
-
-	def historySession = activeVcs.vcsHistoryProvider.createSessionFor(new FilePathImpl(file))
-	def revisions = historySession.revisionList.sort{ it.revisionDate }
-	if (revisions.size() < 2) {
-		show("There is only one revision for '${file.name}'")
-		return
-	}
+	def (errorMessage, file, revisions) = checkIfCanRunAction(event)
+	if (errorMessage != null) return show(errorMessage)
 
 	def editor = currentEditorIn(event.project)
 	def psiElement = currentPsiFileIn(event.project)?.findElementAt(editor.caretModel.offset)
 	def psiMethod = findParent(psiElement, {it instanceof PsiMethod})
-
-	def extractDiffContentFrom = { text ->
-		if (psiMethod == null) return text
-
-		def psiFile = PsiFileFactory.getInstance(event.project).createFileFromText(file.name, file.fileType, text)
-		def psiMethods = psiFile.children.findAll{it instanceof PsiClass}.collect { psiClass ->
-			psiClass.children.findAll{it instanceof PsiMethod}
-		}.flatten()
-
-		def methodText = psiMethods.find{it.name == psiMethod.name}?.text
-		methodText != null ? methodText : ""
-	}
+	def findMethodCodeIn = this.&findMethodCodeIn.curry(PsiFileFactory.getInstance(event.project), file, psiMethod)
 
 	def diffPanel = new DiffPanelImpl((Window) null, event.project, (boolean) true, (boolean) true, (int) 0)
 	diffPanel.enableToolbar(false)
-	def leftContent = new MySimpleContent(extractDiffContentFrom(new String(revisions[0].content)), file)
-	def rightContent = new MySimpleContent(extractDiffContentFrom(new String(revisions[1].content)), file)
+	diffPanel.requestFocus = false
+	def leftContent = new MySimpleContent(findMethodCodeIn(revisions[-2].content), file, revisions[-2])
+	def rightContent = new MySimpleContent(findMethodCodeIn(revisions[-1].content), file, revisions[-1])
 	diffPanel.diffRequest = new MyDiffRequest(leftContent, rightContent)
 
 	def sliderPanel = new JPanel().with {
 		layout = new BorderLayout()
-		add(createSliderPanel(revisions, 0, { VcsFileRevision revision ->
-			catchingAlll {
-				leftContent = new MySimpleContent(extractDiffContentFrom(new String(revision.content)), file)
-				diffPanel.diffRequest = withKeepingScrollPositionIn(diffPanel.editor1){ new MyDiffRequest(leftContent, rightContent) }
+		add(createSliderPanel(revisions, revisions.size() - 2, { VcsFileRevision revision ->
+			catchingAll {
+				leftContent = new MySimpleContent(findMethodCodeIn(revision.content), file, revision)
+				diffPanel.diffRequest = new MyDiffRequest(leftContent, rightContent)
 			}
 		}), BorderLayout.NORTH)
-		add(createSliderPanel(revisions, 1, { VcsFileRevision revision ->
-			catchingAlll {
-				rightContent = new MySimpleContent(extractDiffContentFrom(new String(revision.content)), file)
-				diffPanel.diffRequest = withKeepingScrollPositionIn(diffPanel.editor2){ new MyDiffRequest(leftContent, rightContent) }
+		add(createSliderPanel(revisions, revisions.size() - 1, { VcsFileRevision revision ->
+			catchingAll {
+				rightContent = new MySimpleContent(findMethodCodeIn(revision.content), file, revision)
+				diffPanel.diffRequest = new MyDiffRequest(leftContent, rightContent)
 			}
 		}), BorderLayout.SOUTH)
 		it
@@ -117,19 +93,25 @@ class MyDiffRequest extends DiffRequest {
 	}
 
 	@Override DiffContent[] getContents() { [leftContent, rightContent] }
-	@Override String[] getContentTitles() { ["left", "right"] }
+	@Override String[] getContentTitles() { [revisionToString(leftContent.revision), revisionToString(rightContent.revision)] }
 	@Override String getWindowTitle() { "" }
+
+	private def revisionToString(VcsFileRevision revision) {
+		"     " +
+		"Date: " + (revision == null ? "unknown" : new SimpleDateFormat("dd/MM/yyyy hh:mm").format(revision.revisionDate)) +
+		"    " +
+		"(author: ${revision.author}; " +
+		"revision: ${revision.revisionNumber.asString().take(6)})"
+	}
 }
 
 class MySimpleContent extends SimpleContent {
-	private final VirtualFile virtualFile
+	final VcsFileRevision revision
 
-	MySimpleContent(String text, VirtualFile virtualFile) {
+	MySimpleContent(String text, VirtualFile virtualFile, VcsFileRevision revision) {
 		super(text, virtualFile.fileType)
-		this.virtualFile = virtualFile
+		this.revision = revision
 	}
-
-	@Override VirtualFile getFile() { virtualFile }
 }
 
 DiffRequest withKeepingScrollPositionIn(Editor editor, Closure<DiffRequest> closure) {
@@ -157,24 +139,12 @@ DiffRequest withKeepingScrollPositionIn(Editor editor, Closure<DiffRequest> clos
 }
 
 def createSliderPanel(List<VcsFileRevision> revisions, int sliderPosition, Closure sliderCallback) {
-	def dateFormat = new SimpleDateFormat("dd-MM-yyyy hh:mm")
-
-	def revisionToString = { int revisionIndex ->
-		def revision = revisions[revisionIndex]
-		"Date: " + (revision == null ? "unknown" : dateFormat.format(revision.revisionDate))
-	}
-
 	new JPanel().with{
-		def slider = new JSlider(JScrollBar.HORIZONTAL, 0, revisions.size() - 1, sliderPosition)
-		def label = new JLabel()
-		label.text = revisionToString(slider.value)
-
 		layout = new BorderLayout()
-		add(label, BorderLayout.WEST)
+		def slider = new JSlider(JScrollBar.HORIZONTAL, 0, revisions.size() - 1, sliderPosition)
 		add(slider, BorderLayout.CENTER)
 		slider.addChangeListener(new ChangeListener() {
 			@Override void stateChanged(ChangeEvent event) {
-				label.text = revisionToString(slider.value)
 				sliderCallback.call(revisions[slider.value])
 			}
 		})
@@ -182,14 +152,26 @@ def createSliderPanel(List<VcsFileRevision> revisions, int sliderPosition, Closu
 	}
 }
 
-def catchingAlll(Closure closure) {
-	try {
+def findMethodCodeIn(PsiFileFactory psiFileFactory, originalFile, psiMethod, revisionContent) {
+	def psiFile = psiFileFactory.createFileFromText(originalFile.name, originalFile.fileType, new String(revisionContent))
+	def psiMethods = psiFile.children.findAll{it instanceof PsiClass}.collect { psiClass ->
+		psiClass.children.findAll{it instanceof PsiMethod}
+	}.flatten()
 
-		closure.call()
+	def methodText = psiMethods.find{it.name == psiMethod.name}?.text
+	methodText != null ? methodText : ""
+}
 
-	} catch (Exception e) {
-		ProjectManager.instance.openProjects.each { Project project ->
-			showInConsole(e, e.class.simpleName, project)
-		}
-	}
+def checkIfCanRunAction(AnActionEvent event) {
+	VirtualFile file = currentFileIn(event.project)
+	if (file == null) return ["There are no open file editors"]
+
+	AbstractVcs activeVcs = ProjectLevelVcsManager.getInstance(event.project).getVcsFor(file)
+	if (activeVcs == null) return ["There is no history for open file '${file.name}'"]
+
+	def historySession = activeVcs.vcsHistoryProvider.createSessionFor(new FilePathImpl(file))
+	revisions = historySession.revisionList.sort{ it.revisionDate }
+	if (revisions.size() < 2) return ["There is only one revision for '${file.name}'"]
+
+	[null, file, revisions]
 }
