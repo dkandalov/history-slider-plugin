@@ -15,6 +15,7 @@ import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFileFactory
 import com.intellij.psi.PsiMethod
+import com.intellij.psi.PsiWhiteSpace
 
 import javax.swing.*
 import javax.swing.event.ChangeEvent
@@ -37,6 +38,7 @@ registerAction("showHistorySliderAction", "alt shift H", "ToolsMenu") { AnAction
 	def psiMethod = findParent(psiElement, {it instanceof PsiMethod})
 	def findMethodCodeIn = this.&findMethodCodeIn.curry(PsiFileFactory.getInstance(event.project), file, psiMethod)
 
+	// TODO use DiffManager?
 	def diffPanel = new DiffPanelImpl((Window) null, event.project, (boolean) true, (boolean) true, (int) 0)
 	diffPanel.enableToolbar(false)
 	diffPanel.requestFocus = false
@@ -158,8 +160,11 @@ def findMethodCodeIn(PsiFileFactory psiFileFactory, originalFile, psiMethod, rev
 		psiClass.children.findAll{it instanceof PsiMethod}
 	}.flatten()
 
-	def methodText = psiMethods.find{it.name == psiMethod.name}?.text
-	methodText != null ? methodText : ""
+	psiMethod = psiMethods.find { it.name == psiMethod.name }
+	def methodText = psiMethod?.text
+	def whiteSpace = (psiMethod.prevSibling instanceof PsiWhiteSpace ? psiMethod.prevSibling.text : "")
+
+	methodText != null ? whiteSpace + methodText : ""
 }
 
 def checkIfCanRunAction(AnActionEvent event) {
