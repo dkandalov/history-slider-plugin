@@ -1,24 +1,20 @@
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.diff.DiffContent
-import com.intellij.openapi.diff.DiffNavigationContext
 import com.intellij.openapi.diff.DiffRequest
-import com.intellij.openapi.diff.DiffTool
 import com.intellij.openapi.diff.SimpleContent
 import com.intellij.openapi.diff.impl.DiffPanelImpl
-import com.intellij.openapi.diff.impl.util.SyncScrollSupport
-import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
+import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
-import com.intellij.openapi.util.Pair
 import com.intellij.openapi.vcs.AbstractVcs
 import com.intellij.openapi.vcs.FilePathImpl
 import com.intellij.openapi.vcs.ProjectLevelVcsManager
-import com.intellij.openapi.vcs.actions.ContentsLines
 import com.intellij.openapi.vcs.history.VcsFileRevision
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.util.containers.CacheOneStepIterator
-
-import static intellijeval.PluginUtil.*
+import com.intellij.psi.PsiClass
+import com.intellij.psi.PsiElement
+import com.intellij.psi.PsiFileFactory
+import com.intellij.psi.PsiMethod
 
 import javax.swing.*
 import javax.swing.event.ChangeEvent
@@ -27,6 +23,8 @@ import java.awt.*
 import java.text.SimpleDateFormat
 import java.util.List
 
+import static intellijeval.PluginUtil.*
+import static infer.MatchUtil.*
 
 registerAction("showHistorySliderAction", "alt shift H", "ToolsMenu") { AnActionEvent event ->
 	VirtualFile file = currentFileIn(event.project)
@@ -34,37 +32,53 @@ registerAction("showHistorySliderAction", "alt shift H", "ToolsMenu") { AnAction
 		show("There are no open file editors")
 		return
 	}
+
 	AbstractVcs activeVcs = ProjectLevelVcsManager.getInstance(event.project).getVcsFor(file)
 	if (activeVcs == null) {
 		show("There is no history for open file '${file.name}'")
 		return
 	}
-	def historySession = activeVcs.vcsHistoryProvider.createSessionFor(new FilePathImpl(file))
 
-	//show(historySession.revisionList.join(", "))
+	def historySession = activeVcs.vcsHistoryProvider.createSessionFor(new FilePathImpl(file))
 	def revisions = historySession.revisionList.sort{ it.revisionDate }
 	if (revisions.size() < 2) {
 		show("There is only one revision for '${file.name}'")
 		return
 	}
 
+	def editor = currentEditorIn(event.project)
+	def psiElement = currentPsiFileIn(event.project)?.findElementAt(editor.caretModel.offset)
+	def psiMethod = findParent(psiElement, {it instanceof PsiMethod})
+
+	def extractDiffContentFrom = { text ->
+		if (psiMethod == null) return text
+
+		def psiFile = PsiFileFactory.getInstance(event.project).createFileFromText(file.name, file.fileType, text)
+		def psiMethods = psiFile.children.findAll{it instanceof PsiClass}.collect { psiClass ->
+			psiClass.children.findAll{it instanceof PsiMethod}
+		}.flatten()
+
+		def methodText = psiMethods.find{it.name == psiMethod.name}?.text
+		methodText != null ? methodText : ""
+	}
+
 	def diffPanel = new DiffPanelImpl((Window) null, event.project, (boolean) true, (boolean) true, (int) 0)
 	diffPanel.enableToolbar(false)
-	def leftContent = new MySimpleContent(new String(revisions[0].content), file)
-	def rightContent = new MySimpleContent(new String(revisions[1].content), file)
+	def leftContent = new MySimpleContent(extractDiffContentFrom(new String(revisions[0].content)), file)
+	def rightContent = new MySimpleContent(extractDiffContentFrom(new String(revisions[1].content)), file)
 	diffPanel.diffRequest = new MyDiffRequest(leftContent, rightContent)
 
 	def sliderPanel = new JPanel().with {
 		layout = new BorderLayout()
 		add(createSliderPanel(revisions, 0, { VcsFileRevision revision ->
 			catchingAlll {
-				leftContent = new MySimpleContent(new String(revision.content), file)
+				leftContent = new MySimpleContent(extractDiffContentFrom(new String(revision.content)), file)
 				diffPanel.diffRequest = withKeepingScrollPositionIn(diffPanel.editor1){ new MyDiffRequest(leftContent, rightContent) }
 			}
 		}), BorderLayout.NORTH)
 		add(createSliderPanel(revisions, 1, { VcsFileRevision revision ->
 			catchingAlll {
-				rightContent = new MySimpleContent(new String(revision.content), file)
+				rightContent = new MySimpleContent(extractDiffContentFrom(new String(revision.content)), file)
 				diffPanel.diffRequest = withKeepingScrollPositionIn(diffPanel.editor2){ new MyDiffRequest(leftContent, rightContent) }
 			}
 		}), BorderLayout.SOUTH)
@@ -78,6 +92,7 @@ registerAction("showHistorySliderAction", "alt shift H", "ToolsMenu") { AnAction
 			add(sliderPanel, BorderLayout.SOUTH)
 			it
 		})
+		preferredSize = new Dimension(1600, 800)
 		pack()
 		visible = true
 	}
@@ -85,6 +100,11 @@ registerAction("showHistorySliderAction", "alt shift H", "ToolsMenu") { AnAction
 show("reloaded")
 
 
+def <T> T findParent(PsiElement element, Closure<T> matches) {
+	if (element == null) null
+	else if (matches(element)) element
+	else findParent(element.parent, matches)
+}
 
 class MyDiffRequest extends DiffRequest {
 	private final leftContent
@@ -112,7 +132,7 @@ class MySimpleContent extends SimpleContent {
 	@Override VirtualFile getFile() { virtualFile }
 }
 
-DiffRequest withKeepingScrollPositionIn(editor, Closure<DiffRequest> closure) {
+DiffRequest withKeepingScrollPositionIn(Editor editor, Closure<DiffRequest> closure) {
 	// TODO this was a desparate attemp to make vertical scroll stay in the position/line whil diff panel content
 	// problems:
 	//  - diff "flickers" when changing date (something like scroll to 1st line, scroll to last position)
