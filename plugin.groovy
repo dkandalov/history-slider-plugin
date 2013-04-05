@@ -21,9 +21,12 @@ import com.intellij.openapi.vcs.history.VcsFileRevision
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiElement
+import com.intellij.psi.PsiElementVisitor
 import com.intellij.psi.PsiFileFactory
 import com.intellij.psi.PsiMethod
+import com.intellij.psi.PsiRecursiveElementVisitor
 import com.intellij.psi.PsiWhiteSpace
+import com.intellij.psi.util.PsiFilter
 
 import javax.swing.*
 import javax.swing.event.ChangeEvent
@@ -197,11 +200,18 @@ class PsiBasedMethodHistory {
 
 	def findMethodCodeIn(PsiFileFactory psiFileFactory, originalFile, psiMethod, revisionContent) {
 		def psiFile = psiFileFactory.createFileFromText(originalFile.name, originalFile.fileType, new String(revisionContent))
-		def psiMethods = psiFile.children.findAll{it instanceof PsiClass}.collect { psiClass ->
-			psiClass.children.findAll{it instanceof PsiMethod}
-		}.flatten()
-
+		def psiClasses = []
+		psiFile.acceptChildren(new PsiRecursiveElementVisitor() {
+			@Override void visitElement(PsiElement element) {
+				super.visitElement(element)
+				if (element instanceof PsiClass) psiClasses << element
+			}
+		})
+		def psiMethods = psiClasses.collect{ psiClass -> psiClass.children.findAll{it instanceof PsiMethod} }.flatten()
+		log(psiMethods.collect{it.name})
+		log(psiMethod.name)
 		psiMethod = psiMethods.find { it.name == psiMethod.name }
+		log(psiMethod?.name)
 		def methodText = psiMethod?.text
 		def whiteSpace = (psiMethod?.prevSibling instanceof PsiWhiteSpace ? psiMethod.prevSibling.text : "")
 
