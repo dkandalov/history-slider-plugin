@@ -4,7 +4,9 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.components.ServiceManager
 import com.intellij.openapi.diff.DiffContent
+import com.intellij.openapi.diff.DiffManager
 import com.intellij.openapi.diff.DiffRequest
+import com.intellij.openapi.diff.DiffTool
 import com.intellij.openapi.diff.SimpleContent
 import com.intellij.openapi.diff.impl.DiffPanelImpl
 import com.intellij.openapi.editor.Editor
@@ -91,8 +93,7 @@ class PsiBasedMethodHistory {
 		def psiMethod = findParent(psiElement, {it instanceof PsiMethod})
 		def findMethodCodeIn = this.&findMethodCodeIn.curry(PsiFileFactory.getInstance(event.project), file, psiMethod)
 
-		// TODO use DiffManager?
-		def diffPanel = new DiffPanelImpl((Window) null, event.project, (boolean) true, (boolean) true, (int) 0)
+		def diffPanel = new DiffPanelImpl((Window) null, event.project, (boolean) true, (boolean) true, (int) 0, (DiffTool) null)
 		diffPanel.enableToolbar(false)
 		diffPanel.requestFocus = false
 		def leftContent = new MySimpleContent(findMethodCodeIn(revisions[-2].content), file, revisions[-2])
