@@ -37,7 +37,7 @@ import java.awt.event.KeyListener
 import java.text.SimpleDateFormat
 import java.util.List
 
-import static intellijeval.PluginUtil.*
+import static liveplugin.PluginUtil.*
 
 
 registerAction("showHistorySliderAction", "ctrl alt shift H", "ToolsMenu") { AnActionEvent event ->
