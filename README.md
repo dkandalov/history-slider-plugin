@@ -10,4 +10,4 @@ I didn't find how to implement this.
 History with sliders used to look like this (see two sliders at the bottom):
 <img src="https://raw.github.com/dkandalov/history-slider-plugin/master/date_diff.png" alt="auto-revert screenshot" title="screenshot" align="left" />
 
-(Note that this plugin will only work within [intellij-eval plugin](https://github.com/dkandalov/intellij_eval).)<br/>
+(Note that this plugin will only work within [live-plugin](https://github.com/dkandalov/live-plugin).)<br/>
