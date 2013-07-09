@@ -37,10 +37,10 @@ import java.awt.event.KeyListener
 import java.text.SimpleDateFormat
 import java.util.List
 
-import static intellijeval.PluginUtil.*
+import static liveplugin.PluginUtil.*
 
 
-registerAction("showHistorySliderAction", "ctrl alt shift H", "ToolsMenu") { AnActionEvent event ->
+registerAction("showMethodHistoryAction", "ctrl alt shift H", "ToolsMenu", "Show Method History") { AnActionEvent event ->
 	def popupTitle = "Show Method History"
 	JBPopupFactory.instance.createActionGroupPopup(
 			popupTitle,
@@ -58,7 +58,7 @@ registerAction("showHistorySliderAction", "ctrl alt shift H", "ToolsMenu") { AnA
 			true
 	).showCenteredInCurrentWindow(event.project)
 }
-show("reloaded")
+if (!isIdeStartup) show("Loaded showHistorySliderAction<br/>Use ctrl+alt+shift+H to run it")
 
 
 class SelectionBasedMethodHistory {
